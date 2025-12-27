@@ -1,0 +1,77 @@
+name: CI GitVerse
+
+# workflow запускается при каждом push
+on: [push]
+
+env:
+  PYTHONUNBUFFERED: "1"
+  HEADLESS: "true"  # для безголового запуска Selenium
+
+jobs:
+  run_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install Chrome
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget gnupg unzip
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -y
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --version
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with Allure results
+        run: |
+          python -m pytest tests/ -v --alluredir=allure-results
+
+      - name: Upload allure-results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+
+  generate_report:
+    needs: run_tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download allure-results
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+
+      - name: Install Java and Allure
+        run: |
+          sudo apt-get update && sudo apt-get install -y openjdk-11-jre curl
+          curl -o allure-2.13.8.tgz -Ls https://github.com/allure-framework/allure2/releases/download/2.13.8/allure-2.13.8.tgz
+          tar -zxvf allure-2.13.8.tgz -C /opt/
+          sudo ln -s /opt/allure-2.13.8/bin/allure /usr/bin/allure
+
+      - name: Generate Allure report
+        run: |
+          allure generate allure-results -o allure-report --clean
+
+      - name: Upload allure-report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
